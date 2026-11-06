@@ -1,0 +1,60 @@
+name: AOSP17 NFC Mainline vs legacy NXP source boundary
+
+on:
+  push:
+    branches:
+      - audit/a17-nfc-nci-mainline-boundary-20261107
+    paths:
+      - 'audit/check_nfc_mainline_boundary.py'
+      - 'docs/ANDROID_17_NXP_LIBNFC_NCI_MAINLINE_AUDIT.md'
+      - '.github/workflows/a17-nfc-mainline-boundary.yml'
+  pull_request:
+    paths:
+      - 'audit/check_nfc_mainline_boundary.py'
+      - 'docs/ANDROID_17_NXP_LIBNFC_NCI_MAINLINE_AUDIT.md'
+      - '.github/workflows/a17-nfc-mainline-boundary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-identity-and-manifest-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout audit without persistent tokens
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Fetch untouched original NXP libnfc-nci history
+        run: |
+          git fetch -q --no-tags --depth=1 origin \
+            +refs/heads/seventeen:refs/remotes/origin/seventeen
+      - name: Fetch official pinned Android17 Mainline NFC tree
+        run: |
+          git init -q "$RUNNER_TEMP/aosp17-nfc"
+          git -C "$RUNNER_TEMP/aosp17-nfc" remote add origin \
+            https://android.googlesource.com/platform/packages/modules/Nfc
+          git -C "$RUNNER_TEMP/aosp17-nfc" fetch -q --no-tags \
+            --filter=blob:none --depth=1 origin refs/tags/android-17.0.0_r1
+      - name: Fetch reviewed PE-Reborn AOSP17 manifest branch
+        run: |
+          git clone -q --depth=1 \
+            --branch port/a17-aosp17-manifest-20261102 \
+            https://github.com/PixelExperience-Reborn/manifest.git \
+            "$RUNNER_TEMP/manifest"
+      - name: Assert exact source and non-activation contracts
+        run: |
+          python3 audit/check_nfc_mainline_boundary.py \
+            "$GITHUB_WORKSPACE" "$RUNNER_TEMP/aosp17-nfc" "$RUNNER_TEMP/manifest"
+      - name: Run positive and negative AOSP17 manifest regression tests
+        run: |
+          cd "$RUNNER_TEMP/manifest"
+          python3 -m unittest discover -s tools \
+            -p test_aosp17_manifest_entrypoint.py -v
+      - name: Scope of these checks
+        run: |
+          echo "SOURCE-ONLY AOSP17/NXP legacy file, module and manifest checks."
+          echo "NOT TESTED: NFC Soong, APEX signing, build, vendor ABI, VINTF,"
+          echo "secure element, NFC/HCE operation, CTS/VTS or mondrian."
